@@ -8,10 +8,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -26,9 +22,21 @@ serve(async (req) => {
 
     console.log('Processing TikTok video:', videoUrl);
 
-    // Check if OpenAI API key is available
+    // Get environment variables
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+
+    console.log('Environment check - Supabase URL:', supabaseUrl ? 'Present' : 'Missing');
+    console.log('Environment check - Supabase Key:', supabaseKey ? 'Present' : 'Missing');
+    console.log('Environment check - OpenAI Key:', openaiApiKey ? 'Present' : 'Missing');
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Supabase configuration is missing');
+    }
+
     if (!openaiApiKey) {
-      throw new Error('OpenAI API key is not configured');
+      throw new Error('OpenAI API key is not configured. Please add it in your Supabase project settings under Edge Functions secrets.');
     }
 
     // Get user from auth header
@@ -43,17 +51,23 @@ serve(async (req) => {
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
+      console.error('Auth error:', userError);
       throw new Error('Invalid authentication');
     }
 
+    console.log('User authenticated:', user.id);
+
     // Step 1: Extract video information (mock for now, real implementation would use TikTok API)
     const videoInfo = await extractVideoInfo(videoUrl);
+    console.log('Video info extracted:', videoInfo);
     
     // Step 2: Generate transcription and analysis using OpenAI
-    const analysis = await analyzeVideoContent(videoInfo);
+    const analysis = await analyzeVideoContent(videoInfo, openaiApiKey);
+    console.log('Analysis completed');
     
     // Step 3: Generate detailed itinerary
-    const itinerary = await generateItinerary(analysis);
+    const itinerary = await generateItinerary(analysis, openaiApiKey);
+    console.log('Itinerary generated');
     
     // Step 4: Save to database
     const { data: savedItinerary, error: saveError } = await supabase
@@ -76,6 +90,8 @@ serve(async (req) => {
       console.error('Error saving itinerary:', saveError);
       throw new Error('Failed to save itinerary');
     }
+
+    console.log('Itinerary saved successfully:', savedItinerary.id);
 
     return new Response(JSON.stringify({
       success: true,
@@ -114,7 +130,7 @@ async function extractVideoInfo(videoUrl: string) {
   };
 }
 
-async function analyzeVideoContent(videoInfo: any) {
+async function analyzeVideoContent(videoInfo: any, openaiApiKey: string) {
   console.log('Analyzing video content with OpenAI...');
   
   try {
@@ -156,7 +172,7 @@ Please provide:
     }
 
     const data = await response.json();
-    console.log('OpenAI response:', JSON.stringify(data, null, 2));
+    console.log('OpenAI response received');
 
     if (!data.choices || !data.choices[0] || !data.choices[0].message) {
       throw new Error('Invalid response structure from OpenAI API');
@@ -175,7 +191,7 @@ Please provide:
   }
 }
 
-async function generateItinerary(analysis: any) {
+async function generateItinerary(analysis: any, openaiApiKey: string) {
   console.log('Generating detailed itinerary...');
   
   try {
