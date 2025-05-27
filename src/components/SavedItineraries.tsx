@@ -6,12 +6,14 @@ import { MapPin, Clock, Calendar, Eye, Bookmark } from "lucide-react";
 
 interface SavedItinerariesProps {
   itineraries: Array<{
-    id: number;
+    id: string;
     title: string;
     location: string;
     duration: string;
-    videoUrl: string;
-    createdAt: string;
+    video_url: string;
+    created_at: string;
+    itinerary_content?: any;
+    transcription?: string;
   }>;
   onSelect: (itinerary: any) => void;
 }
@@ -50,7 +52,7 @@ const SavedItineraries = ({ itineraries, onSelect }: SavedItinerariesProps) => {
                   </div>
                   <div className="flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
-                    <span>{new Date(itinerary.createdAt).toLocaleDateString()}</span>
+                    <span>{new Date(itinerary.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
               </div>
@@ -58,7 +60,16 @@ const SavedItineraries = ({ itineraries, onSelect }: SavedItinerariesProps) => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onSelect(itinerary)}
+                onClick={() => onSelect({
+                  id: itinerary.id,
+                  title: itinerary.title,
+                  location: itinerary.location,
+                  duration: itinerary.duration,
+                  videoUrl: itinerary.video_url,
+                  transcription: itinerary.transcription,
+                  itinerary: itinerary.itinerary_content,
+                  createdAt: itinerary.created_at
+                })}
                 className="w-full hover:bg-blue-50 hover:border-blue-300 transition-colors"
               >
                 <Eye className="w-4 h-4 mr-1" />

@@ -7,7 +7,7 @@ import { MapPin, Clock, Save, Calendar, ExternalLink } from "lucide-react";
 
 interface ItineraryProps {
   itinerary: {
-    id: number;
+    id: string;
     title: string;
     location: string;
     duration: string;
@@ -56,29 +56,20 @@ const ItineraryDisplay = ({ itinerary, onSave }: ItineraryProps) => {
               <ExternalLink className="w-4 h-4 mr-1" />
               View Video
             </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onSave}
-              className="bg-white/20 hover:bg-white/30 text-white border-white/30"
-            >
-              <Save className="w-4 h-4 mr-1" />
-              Save Trip
-            </Button>
           </div>
         </div>
       </Card>
 
       {/* Transcription Card */}
       <Card className="p-6 shadow-lg border-0 bg-white/80 backdrop-blur-sm">
-        <h3 className="text-lg font-semibold text-gray-800 mb-3">Video Transcription</h3>
+        <h3 className="text-lg font-semibold text-gray-800 mb-3">AI Analysis</h3>
         <p className="text-gray-600 leading-relaxed">{itinerary.transcription}</p>
       </Card>
 
       {/* Itinerary Cards */}
       <div className="space-y-4">
         <h3 className="text-xl font-semibold text-gray-800">Your Detailed Itinerary</h3>
-        {itinerary.itinerary.map((day, index) => (
+        {itinerary.itinerary && itinerary.itinerary.map((day, index) => (
           <Card key={day.day} className="p-6 shadow-lg border-0 bg-white/80 backdrop-blur-sm hover:shadow-xl transition-shadow duration-300">
             <div className="flex items-start gap-4">
               <div className="flex-shrink-0">

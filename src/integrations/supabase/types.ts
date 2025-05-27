@@ -9,7 +9,72 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      itineraries: {
+        Row: {
+          caption_text: string | null
+          created_at: string
+          duration: string | null
+          id: string
+          itinerary_content: Json | null
+          location: string | null
+          screen_text: string | null
+          title: string
+          transcription: string | null
+          updated_at: string
+          user_id: string
+          video_url: string
+        }
+        Insert: {
+          caption_text?: string | null
+          created_at?: string
+          duration?: string | null
+          id?: string
+          itinerary_content?: Json | null
+          location?: string | null
+          screen_text?: string | null
+          title: string
+          transcription?: string | null
+          updated_at?: string
+          user_id: string
+          video_url: string
+        }
+        Update: {
+          caption_text?: string | null
+          created_at?: string
+          duration?: string | null
+          id?: string
+          itinerary_content?: Json | null
+          location?: string | null
+          screen_text?: string | null
+          title?: string
+          transcription?: string | null
+          updated_at?: string
+          user_id?: string
+          video_url?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
