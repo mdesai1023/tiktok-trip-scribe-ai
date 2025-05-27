@@ -18,6 +18,7 @@ const Index = () => {
   const [currentItinerary, setCurrentItinerary] = useState(null);
   const [savedItineraries, setSavedItineraries] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState("process");
   const { toast } = useToast();
   const { user, loading } = useAuth();
 
@@ -76,6 +77,7 @@ const Index = () => {
       if (data.success) {
         setCurrentItinerary(data.itinerary);
         await fetchSavedItineraries(); // Refresh saved list
+        setActiveTab("current"); // Switch to current trip tab
         toast({
           title: "Video processed successfully!",
           description: "Your travel itinerary is ready",
@@ -93,6 +95,11 @@ const Index = () => {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleSelectItinerary = (itinerary: any) => {
+    setCurrentItinerary(itinerary);
+    setActiveTab("current"); // Switch to current trip tab
   };
 
   if (loading) {
@@ -152,7 +159,7 @@ const Index = () => {
         </p>
       </div>
 
-      <Tabs defaultValue="process" className="max-w-4xl mx-auto">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="max-w-4xl mx-auto">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="process" className="flex items-center gap-2">
             <Video className="w-4 h-4" />
@@ -220,7 +227,7 @@ const Index = () => {
         <TabsContent value="saved">
           <SavedItineraries
             itineraries={savedItineraries}
-            onSelect={setCurrentItinerary}
+            onSelect={handleSelectItinerary}
           />
         </TabsContent>
       </Tabs>

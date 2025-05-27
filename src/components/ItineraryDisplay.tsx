@@ -60,12 +60,6 @@ const ItineraryDisplay = ({ itinerary, onSave }: ItineraryProps) => {
         </div>
       </Card>
 
-      {/* Transcription Card */}
-      <Card className="p-6 shadow-lg border-0 bg-white/80 backdrop-blur-sm">
-        <h3 className="text-lg font-semibold text-gray-800 mb-3">AI Analysis</h3>
-        <p className="text-gray-600 leading-relaxed">{itinerary.transcription}</p>
-      </Card>
-
       {/* Itinerary Cards */}
       <div className="space-y-4">
         <h3 className="text-xl font-semibold text-gray-800">Your Detailed Itinerary</h3>
