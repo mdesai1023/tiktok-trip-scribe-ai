@@ -1,7 +1,12 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import fetch from 'node-fetch';
+import { execSync } from 'child_process';
+import FormData from 'form-data';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -118,101 +123,139 @@ serve(async (req) => {
 });
 
 async function analyzeVideoUrl(videoUrl: string, openaiApiKey: string) {
-  console.log('Analyzing TikTok video URL with AI:', videoUrl);
-  
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a travel content analyzer. Analyze TikTok travel video URLs and extract travel information. Based on the URL structure, video ID, and any visible information, determine the likely travel destination and content. Be specific about locations and provide realistic travel recommendations.'
-          },
-          {
-            role: 'user',
-            content: `Analyze this TikTok travel video URL: ${videoUrl}
+  console.log('Downloading TikTok video:', videoUrl);
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tiktok-'));
+  const videoPath = path.join(tempDir, 'video.mp4');
+  const audioPath = path.join(tempDir, 'audio.mp3');
 
-Please provide detailed analysis including:
-1. The most likely travel destination based on the URL and content
-2. A realistic transcription of what a travel creator would say about this destination
-3. Key travel highlights and recommendations for this location
-4. Text that might appear on screen (locations, tips, etc.)
+  // 1. Download TikTok video
+  const downloaderApi = `https://api.tikmate.app/api/lookup?url=${encodeURIComponent(videoUrl)}`;
+  const lookupRes = await fetch(downloaderApi);
+  if (!lookupRes.ok) throw new Error('Failed to lookup TikTok video');
+  const lookupData = await lookupRes.json();
+  if (!lookupData.token || !lookupData.id) throw new Error('Invalid TikTok lookup response');
+  const downloadUrl = `https://tikmate.app/download/${lookupData.token}/${lookupData.id}.mp4`;
+  const videoRes = await fetch(downloadUrl);
+  if (!videoRes.ok) throw new Error('Failed to download TikTok video');
+  const videoBuffer = await videoRes.buffer();
+  fs.writeFileSync(videoPath, videoBuffer);
 
-Be specific about the destination and avoid generic responses. If you cannot determine the exact destination from the URL, make educated guesses based on popular travel destinations mentioned in TikTok travel content.`
-          }
-        ],
-        temperature: 0.7,
-      }),
-    });
+  // 2. Extract audio using ffmpeg
+  execSync(`ffmpeg -y -i "${videoPath}" -vn -acodec mp3 "${audioPath}"`);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenAI API error:', response.status, errorText);
-      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    console.log('OpenAI video analysis received');
-
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-      throw new Error('Invalid response structure from OpenAI API');
-    }
-
-    const analysis = data.choices[0].message.content;
-
-    // Parse the analysis to extract structured information
-    const extractLocation = (text: string) => {
-      const locationMatch = text.match(/destination[:\s]*([^,.\n]+)/i) || 
-                           text.match(/location[:\s]*([^,.\n]+)/i) ||
-                           text.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:,\s*[A-Z][a-z]+)*)/);
-      return locationMatch ? locationMatch[1].trim() : 'Travel Destination';
-    };
-
-    const location = extractLocation(analysis);
-    
-    return {
-      transcription: analysis,
-      caption: `Discover amazing travel experiences in ${location}! Check out this incredible destination and all it has to offer.`,
-      screenText: `${location} Travel Guide - Must-see attractions and local experiences`,
-      location: location,
-      insights: analysis
-    };
-  } catch (error) {
-    console.error('Error in analyzeVideoUrl:', error);
-    throw new Error(`Failed to analyze video content: ${error.message}`);
+  // 3. Transcribe audio with OpenAI Whisper
+  const audioFile = fs.readFileSync(audioPath);
+  const form = new FormData();
+  form.append('file', audioFile, { filename: 'audio.mp3', contentType: 'audio/mp3' });
+  form.append('model', 'whisper-1');
+  // Optionally, you can set 'response_format' to 'verbose_json' to get word-level timestamps
+  const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${openaiApiKey}` },
+    body: form
+  });
+  if (!whisperRes.ok) {
+    const errText = await whisperRes.text();
+    throw new Error(`Whisper API error: ${errText}`);
   }
+  const whisperData = await whisperRes.json();
+  const transcript = whisperData.text || '';
+
+  // 4. Extract on-screen text and caption using GPT
+  // (You could also use OCR for on-screen text, but here we use GPT to infer it from the transcript)
+  const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openaiApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a travel content analyzer. Given the following TikTok audio transcript, extract:
+- The main travel destination(s)
+- Key activities and locations mentioned
+- Any on-screen text or tips that would likely appear
+- The TikTok caption (summarize what a typical creator would write as a caption for this video)
+Return your answer in this JSON format:
+{
+  "location": "...",
+  "activities": ["...", "..."],
+  "screenText": "...",
+  "caption": "..."
+}
+`
+        },
+        {
+          role: 'user',
+          content: `TikTok Transcript: ${transcript}`
+        }
+      ],
+      temperature: 0.5,
+    }),
+  });
+  if (!gptRes.ok) {
+    const errText = await gptRes.text();
+    throw new Error(`OpenAI GPT error: ${errText}`);
+  }
+  const gptData = await gptRes.json();
+  let location = 'Unknown';
+  let activities: string[] = [];
+  let screenText = '';
+  let caption = '';
+  try {
+    const json = JSON.parse(gptData.choices?.[0]?.message?.content || '{}');
+    location = json.location || location;
+    activities = json.activities || [];
+    screenText = json.screenText || '';
+    caption = json.caption || '';
+  } catch (e) {
+    // fallback: just use the transcript as a generic fallback
+    screenText = transcript;
+    caption = transcript;
+  }
+
+  // Clean up temp files
+  fs.unlinkSync(videoPath);
+  fs.unlinkSync(audioPath);
+  fs.rmdirSync(tempDir);
+
+  return {
+    transcription: transcript,
+    caption,
+    screenText,
+    location,
+    activities
+  };
 }
 
 async function generateItinerary(videoAnalysis: any, openaiApiKey: string) {
   console.log('Generating detailed itinerary for:', videoAnalysis.location);
-  
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a professional travel planner. Create detailed, practical travel itineraries based on video content analysis. Include specific activities, timing, locations, and helpful tips. Focus on the actual destination mentioned in the analysis.'
-          },
-          {
-            role: 'user',
-            content: `Create a detailed travel itinerary for ${videoAnalysis.location} based on this video analysis:
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openaiApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a professional travel planner. Create detailed, practical travel itineraries based on video content analysis. Include specific activities, timing, locations, and helpful tips. Focus on the actual destination mentioned in the analysis.'
+        },
+        {
+          role: 'user',
+          content: `Create a detailed travel itinerary for ${videoAnalysis.location} based on this video analysis:
 
 Location: ${videoAnalysis.location}
 Video Analysis: ${videoAnalysis.transcription}
 Screen Text: ${videoAnalysis.screenText}
+Caption: ${videoAnalysis.caption}
+Activities: ${videoAnalysis.activities?.join(', ')}
 
 Please create a comprehensive itinerary with:
 - Clear title mentioning the specific location (${videoAnalysis.location})
@@ -222,77 +265,73 @@ Please create a comprehensive itinerary with:
 - Local experiences and must-see attractions in ${videoAnalysis.location}
 
 Make sure all activities and recommendations are specifically for ${videoAnalysis.location} and not generic travel advice.`
-          }
-        ],
-        temperature: 0.8,
-      }),
-    });
+        }
+      ],
+      temperature: 0.8,
+    }),
+  });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenAI API error in generateItinerary:', response.status, errorText);
-      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
-
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-      throw new Error('Invalid response structure from OpenAI API in generateItinerary');
-    }
-
-    const itineraryText = data.choices[0].message.content;
-
-    // Extract duration from the response
-    const durationMatch = itineraryText.match(/(\d+)\s*days?/i);
-    const duration = durationMatch ? `${durationMatch[1]} Days` : '5 Days';
-
-    // Parse the itinerary into structured format
-    const days = [];
-    const dayMatches = itineraryText.match(/day\s*\d+[:\-\s]*([^\n]+)/gi);
-    
-    if (dayMatches) {
-      dayMatches.forEach((dayMatch, index) => {
-        const dayTitle = dayMatch.replace(/day\s*\d+[:\-\s]*/i, '').trim();
-        const dayNum = index + 1;
-        
-        // Find activities for this day (this is a simplified parser)
-        const activities = [
-          `Explore ${videoAnalysis.location} highlights`,
-          `Visit local attractions and landmarks`,
-          `Experience authentic local cuisine`,
-          `Enjoy cultural activities and experiences`
-        ];
-
-        days.push({
-          day: dayNum,
-          title: dayTitle || `Day ${dayNum} in ${videoAnalysis.location}`,
-          activities: activities
-        });
-      });
-    } else {
-      // Fallback structure based on location
-      for (let i = 1; i <= 5; i++) {
-        days.push({
-          day: i,
-          title: `Day ${i} - Exploring ${videoAnalysis.location}`,
-          activities: [
-            `Discover ${videoAnalysis.location} attractions`,
-            `Local dining experiences`,
-            `Cultural and outdoor activities`,
-            `Rest and exploration time`
-          ]
-        });
-      }
-    }
-
-    return {
-      title: `${videoAnalysis.location} Adventure`,
-      location: videoAnalysis.location,
-      duration: duration,
-      content: days
-    };
-  } catch (error) {
-    console.error('Error in generateItinerary:', error);
-    throw new Error(`Failed to generate itinerary: ${error.message}`);
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OpenAI API error in generateItinerary:', response.status, errorText);
+    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
   }
+
+  const data = await response.json();
+
+  if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+    throw new Error('Invalid response structure from OpenAI API in generateItinerary');
+  }
+
+  const itineraryText = data.choices[0].message.content;
+
+  // Extract duration from the response
+  const durationMatch = itineraryText.match(/(\\d+)\\s*days?/i);
+  const duration = durationMatch ? `${durationMatch[1]} Days` : '5 Days';
+
+  // Parse the itinerary into structured format
+  const days: { day: number; title: string; activities: string[] }[] = [];
+  const dayMatches = itineraryText.match(/day\\s*\\d+[:\\-\\s]*([^\\n]+)/gi);
+
+  if (dayMatches) {
+    dayMatches.forEach((dayMatch, index) => {
+      const dayTitle = dayMatch.replace(/day\\s*\\d+[:\\-\\s]*/i, '').trim();
+      const dayNum = index + 1;
+
+      // Find activities for this day (this is a simplified parser)
+      const activities = [
+        `Explore ${videoAnalysis.location} highlights`,
+        `Visit local attractions and landmarks`,
+        `Experience authentic local cuisine`,
+        `Enjoy cultural activities and experiences`
+      ];
+
+      days.push({
+        day: dayNum,
+        title: dayTitle || `Day ${dayNum} in ${videoAnalysis.location}`,
+        activities: activities
+      });
+    });
+  } else {
+    // Fallback structure based on location
+    for (let i = 1; i <= 5; i++) {
+      days.push({
+        day: i,
+        title: `Day ${i} - Exploring ${videoAnalysis.location}`,
+        activities: [
+          `Discover ${videoAnalysis.location} attractions`,
+          `Local dining experiences`,
+          `Cultural and outdoor activities`,
+          `Rest and exploration time`
+        ]
+      });
+    }
+  }
+
+  return {
+    title: `${videoAnalysis.location} Adventure`,
+    location: videoAnalysis.location,
+    duration: duration,
+    content: days
+  };
 }
