@@ -1,7 +1,6 @@
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { MapPin, Clock, Calendar, Eye, Bookmark } from "lucide-react";
 
 interface SavedItinerariesProps {
@@ -28,6 +27,23 @@ const SavedItineraries = ({ itineraries, onSelect }: SavedItinerariesProps) => {
       </Card>
     );
   }
+
+  const handleViewDetails = (itinerary: any) => {
+    // Transform the database format to match the component interface
+    const transformedItinerary = {
+      id: itinerary.id,
+      title: itinerary.title,
+      location: itinerary.location,
+      duration: itinerary.duration,
+      videoUrl: itinerary.video_url,
+      transcription: itinerary.transcription || '',
+      itinerary: itinerary.itinerary_content || [],
+      createdAt: itinerary.created_at
+    };
+    
+    console.log('Selecting itinerary:', transformedItinerary);
+    onSelect(transformedItinerary);
+  };
 
   return (
     <div className="space-y-4">
@@ -60,16 +76,7 @@ const SavedItineraries = ({ itineraries, onSelect }: SavedItinerariesProps) => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onSelect({
-                  id: itinerary.id,
-                  title: itinerary.title,
-                  location: itinerary.location,
-                  duration: itinerary.duration,
-                  videoUrl: itinerary.video_url,
-                  transcription: itinerary.transcription,
-                  itinerary: itinerary.itinerary_content,
-                  createdAt: itinerary.created_at
-                })}
+                onClick={() => handleViewDetails(itinerary)}
                 className="w-full hover:bg-blue-50 hover:border-blue-300 transition-colors"
               >
                 <Eye className="w-4 h-4 mr-1" />
