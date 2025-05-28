@@ -1,7 +1,9 @@
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { MapPin, Clock, Calendar, Eye, Bookmark } from "lucide-react";
+import { MapPin, Clock, Calendar, Eye, Bookmark, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SavedItinerariesProps {
   itineraries: Array<{
@@ -15,9 +17,12 @@ interface SavedItinerariesProps {
     transcription?: string;
   }>;
   onSelect: (itinerary: any) => void;
+  onDelete?: () => void;
 }
 
-const SavedItineraries = ({ itineraries, onSelect }: SavedItinerariesProps) => {
+const SavedItineraries = ({ itineraries, onSelect, onDelete }: SavedItinerariesProps) => {
+  const { toast } = useToast();
+
   if (itineraries.length === 0) {
     return (
       <Card className="p-8 text-center shadow-lg border-0 bg-white/80 backdrop-blur-sm">
@@ -43,6 +48,38 @@ const SavedItineraries = ({ itineraries, onSelect }: SavedItinerariesProps) => {
     
     console.log('Selecting itinerary:', transformedItinerary);
     onSelect(transformedItinerary);
+  };
+
+  const handleDelete = async (itineraryId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    
+    try {
+      const { error } = await supabase
+        .from('itineraries')
+        .delete()
+        .eq('id', itineraryId);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Trip deleted",
+        description: "Your saved trip has been successfully deleted",
+      });
+
+      // Call the onDelete callback to refresh the list
+      if (onDelete) {
+        onDelete();
+      }
+    } catch (error: any) {
+      console.error('Error deleting itinerary:', error);
+      toast({
+        title: "Error deleting trip",
+        description: error.message || "Failed to delete the trip. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -73,15 +110,25 @@ const SavedItineraries = ({ itineraries, onSelect }: SavedItinerariesProps) => {
                 </div>
               </div>
               
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleViewDetails(itinerary)}
-                className="w-full hover:bg-blue-50 hover:border-blue-300 transition-colors"
-              >
-                <Eye className="w-4 h-4 mr-1" />
-                View Details
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleViewDetails(itinerary)}
+                  className="flex-1 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                >
+                  <Eye className="w-4 h-4 mr-1" />
+                  View Details
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => handleDelete(itinerary.id, e)}
+                  className="hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           </Card>
         ))}

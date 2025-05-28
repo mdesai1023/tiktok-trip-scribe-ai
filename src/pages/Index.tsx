@@ -182,14 +182,25 @@ const Index = () => {
                 <label htmlFor="tiktok-url" className="block text-sm font-medium text-gray-700 mb-2">
                   TikTok Video URL
                 </label>
-                <Input
-                  id="tiktok-url"
-                  type="url"
-                  placeholder="https://www.tiktok.com/@username/video/..."
-                  value={tiktokUrl}
-                  onChange={(e) => setTiktokUrl(e.target.value)}
-                  className="text-lg py-3"
-                />
+                <div className="space-y-2">
+                  <Input
+                    id="tiktok-url"
+                    type="url"
+                    placeholder="https://www.tiktok.com/@username/video/..."
+                    value={tiktokUrl}
+                    onChange={(e) => setTiktokUrl(e.target.value)}
+                    className="text-lg py-3"
+                  />
+                  <div className="text-xs text-gray-500 space-y-1">
+                    <p><strong>Supported TikTok URL formats:</strong></p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li>Full URLs: https://www.tiktok.com/@username/video/1234567890</li>
+                      <li>Short URLs: https://vm.tiktok.com/ABC123</li>
+                      <li>Mobile URLs: https://m.tiktok.com/v/1234567890</li>
+                      <li>URLs with tracking parameters (will be cleaned automatically)</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
               <Button
                 type="submit"
@@ -228,6 +239,7 @@ const Index = () => {
           <SavedItineraries
             itineraries={savedItineraries}
             onSelect={handleSelectItinerary}
+            onDelete={fetchSavedItineraries}
           />
         </TabsContent>
       </Tabs>
