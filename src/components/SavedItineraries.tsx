@@ -53,6 +53,10 @@ const SavedItineraries = ({ itineraries, onSelect, onDelete }: SavedItinerariesP
   const handleDelete = async (itineraryId: string, event: React.MouseEvent) => {
     event.stopPropagation();
     
+    if (!confirm('Are you sure you want to delete this trip? This action cannot be undone.')) {
+      return;
+    }
+    
     try {
       const { error } = await supabase
         .from('itineraries')
@@ -125,6 +129,7 @@ const SavedItineraries = ({ itineraries, onSelect, onDelete }: SavedItinerariesP
                   size="sm"
                   onClick={(e) => handleDelete(itinerary.id, e)}
                   className="hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors"
+                  title="Delete trip"
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
