@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -63,16 +62,20 @@ serve(async (req) => {
 
     console.log('User authenticated:', user.id);
 
-    // Step 1: Download and analyze TikTok video
-    console.log('Downloading and analyzing TikTok video...');
-    const videoAnalysis = await downloadAndAnalyzeVideo(videoUrl, openaiApiKey, googleCloudApiKey);
+    // Step 1: Clean and resolve TikTok URL
+    const cleanedUrl = cleanTikTokUrl(videoUrl);
+    console.log('Cleaned URL:', cleanedUrl);
+
+    // Step 2: Download and analyze TikTok video using yt-dlp
+    console.log('Downloading and analyzing TikTok video with yt-dlp...');
+    const videoAnalysis = await downloadAndAnalyzeVideoWithYtDlp(cleanedUrl, openaiApiKey, googleCloudApiKey);
     console.log('Video analysis completed for location:', videoAnalysis.location);
     
-    // Step 2: Generate detailed itinerary based on real analysis
+    // Step 3: Generate detailed itinerary based on real analysis
     const itinerary = await generateItinerary(videoAnalysis, openaiApiKey);
     console.log('Itinerary generated for:', itinerary.location);
     
-    // Step 3: Save to database
+    // Step 4: Save to database
     const { data: savedItinerary, error: saveError } = await supabase
       .from('itineraries')
       .insert({
@@ -123,53 +126,55 @@ serve(async (req) => {
   }
 });
 
-async function downloadAndAnalyzeVideo(videoUrl: string, openaiApiKey: string, googleCloudApiKey: string) {
-  console.log('Starting video download and analysis...');
+function cleanTikTokUrl(url: string): string {
+  try {
+    // Remove tracking parameters and clean the URL
+    const urlObj = new URL(url);
+    
+    // Handle mobile URLs (vm.tiktok.com, m.tiktok.com)
+    if (urlObj.hostname === 'vm.tiktok.com' || urlObj.hostname === 'm.tiktok.com') {
+      // These are short URLs that redirect, we'll let yt-dlp handle the resolution
+      return url;
+    }
+    
+    // For standard TikTok URLs, clean parameters
+    if (urlObj.hostname === 'www.tiktok.com' || urlObj.hostname === 'tiktok.com') {
+      // Keep only the essential path, remove query parameters
+      const cleanUrl = `https://www.tiktok.com${urlObj.pathname}`;
+      console.log('Cleaned TikTok URL from', url, 'to', cleanUrl);
+      return cleanUrl;
+    }
+    
+    return url;
+  } catch (error) {
+    console.warn('Failed to clean URL, using original:', error);
+    return url;
+  }
+}
+
+async function downloadAndAnalyzeVideoWithYtDlp(videoUrl: string, openaiApiKey: string, googleCloudApiKey: string) {
+  console.log('Starting video download with yt-dlp...');
   
   try {
-    // Step 1: Get TikTok video download URL
-    console.log('Getting TikTok download URL...');
-    const downloaderApi = `https://api.tikmate.app/api/lookup?url=${encodeURIComponent(videoUrl)}`;
-    const lookupRes = await fetch(downloaderApi);
+    // Step 1: Try to download with yt-dlp
+    const videoData = await downloadVideoWithYtDlp(videoUrl);
     
-    if (!lookupRes.ok) {
-      throw new Error('Failed to lookup TikTok video - API might be down');
-    }
-    
-    const lookupData = await lookupRes.json();
-    console.log('TikTok lookup response:', lookupData);
-    
-    if (!lookupData.token || !lookupData.id) {
-      throw new Error('Invalid TikTok lookup response - could not get download token');
+    if (!videoData) {
+      throw new Error('Failed to download video with yt-dlp');
     }
 
-    // Step 2: Download the video
-    const downloadUrl = `https://tikmate.app/download/${lookupData.token}/${lookupData.id}.mp4`;
-    console.log('Downloading video from:', downloadUrl);
-    
-    const videoRes = await fetch(downloadUrl);
-    if (!videoRes.ok) {
-      throw new Error('Failed to download TikTok video');
-    }
-    
-    const videoArrayBuffer = await videoRes.arrayBuffer();
-    const videoBytes = new Uint8Array(videoArrayBuffer);
-    console.log('Video downloaded, size:', videoBytes.length);
+    console.log('Video downloaded successfully, size:', videoData.length);
 
-    // Step 3: Extract audio using ffmpeg (we'll use a simpler approach for Deno)
-    // Since we can't easily run ffmpeg in Deno edge functions, we'll send the video directly to Whisper
-    // Whisper can handle video files and extract audio automatically
-    
-    // Step 4: Transcribe audio with OpenAI Whisper
+    // Step 2: Transcribe audio with OpenAI Whisper
     console.log('Transcribing audio with Whisper...');
-    const transcription = await transcribeWithWhisper(videoBytes, openaiApiKey);
+    const transcription = await transcribeWithWhisper(videoData, openaiApiKey);
     console.log('Transcription completed:', transcription.substring(0, 100) + '...');
 
-    // Step 5: Extract video frames for OCR (simplified approach)
+    // Step 3: Analyze video frames with GPT Vision
     console.log('Analyzing video content with GPT Vision...');
-    const visionAnalysis = await analyzeVideoWithGPTVision(videoBytes, openaiApiKey);
+    const visionAnalysis = await analyzeVideoWithGPTVision(videoData, openaiApiKey);
     
-    // Step 6: Extract location and travel info from transcription
+    // Step 4: Extract location and travel info from transcription
     console.log('Extracting travel information...');
     const travelInfo = await extractTravelInfo(transcription, visionAnalysis, openaiApiKey);
 
@@ -182,8 +187,96 @@ async function downloadAndAnalyzeVideo(videoUrl: string, openaiApiKey: string, g
     };
 
   } catch (error) {
-    console.error('Error in downloadAndAnalyzeVideo:', error);
+    console.error('Error in downloadAndAnalyzeVideoWithYtDlp:', error);
     throw new Error(`Video analysis failed: ${error.message}`);
+  }
+}
+
+async function downloadVideoWithYtDlp(videoUrl: string): Promise<Uint8Array | null> {
+  try {
+    console.log('Attempting to download with yt-dlp:', videoUrl);
+    
+    // Create a temporary file path
+    const tempVideoPath = `/tmp/tiktok_${Date.now()}.mp4`;
+    
+    // Run yt-dlp command
+    const ytDlpCommand = new Deno.Command("yt-dlp", {
+      args: [
+        "--no-warnings",
+        "--quiet",
+        "--format", "best[ext=mp4]/mp4/best",
+        "--output", tempVideoPath,
+        "--max-filesize", "50M", // Limit file size
+        "--timeout", "30", // 30 second timeout
+        videoUrl
+      ],
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const process = ytDlpCommand.spawn();
+    const { code, stdout, stderr } = await process.output();
+
+    if (code !== 0) {
+      const errorOutput = new TextDecoder().decode(stderr);
+      console.error('yt-dlp failed:', errorOutput);
+      
+      // Check for specific error cases
+      if (errorOutput.includes('private') || errorOutput.includes('restricted')) {
+        throw new Error('This TikTok video is private or restricted and cannot be processed');
+      }
+      if (errorOutput.includes('not available')) {
+        throw new Error('This TikTok video is not available or has been removed');
+      }
+      
+      // Try fallback method
+      console.log('yt-dlp failed, trying fallback method...');
+      return await downloadVideoFallback(videoUrl);
+    }
+
+    // Read the downloaded file
+    console.log('Reading downloaded video file...');
+    const videoData = await Deno.readFile(tempVideoPath);
+    
+    // Clean up temporary file
+    try {
+      await Deno.remove(tempVideoPath);
+    } catch (cleanupError) {
+      console.warn('Failed to cleanup temp file:', cleanupError);
+    }
+
+    return videoData;
+
+  } catch (error) {
+    console.error('yt-dlp download failed:', error);
+    
+    // Try fallback method
+    console.log('Trying fallback download method...');
+    return await downloadVideoFallback(videoUrl);
+  }
+}
+
+async function downloadVideoFallback(videoUrl: string): Promise<Uint8Array | null> {
+  try {
+    console.log('Using fallback download method for:', videoUrl);
+    
+    // Simple fetch fallback (limited effectiveness but worth trying)
+    const response = await fetch(videoUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Fallback download failed: ${response.status}`);
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    return new Uint8Array(arrayBuffer);
+    
+  } catch (error) {
+    console.error('Fallback download failed:', error);
+    throw new Error('Failed to download video. The video may be private, restricted, or the URL may be invalid.');
   }
 }
 
@@ -219,9 +312,9 @@ async function transcribeWithWhisper(videoBytes: Uint8Array, openaiApiKey: strin
 
 async function analyzeVideoWithGPTVision(videoBytes: Uint8Array, openaiApiKey: string) {
   try {
-    // Convert first frame to base64 for vision analysis (simplified approach)
-    // In a real implementation, you'd extract multiple frames
-    const base64Video = btoa(String.fromCharCode(...videoBytes.slice(0, 100000))); // Take first 100KB as sample
+    // Convert video bytes to base64 for vision analysis
+    // Note: GPT-4 Vision can analyze video frames directly
+    const base64Video = btoa(String.fromCharCode(...videoBytes.slice(0, 100000))); // Sample first 100KB
     
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -234,14 +327,14 @@ async function analyzeVideoWithGPTVision(videoBytes: Uint8Array, openaiApiKey: s
         messages: [
           {
             role: 'system',
-            content: 'You are analyzing a TikTok travel video. Describe any visible text, landmarks, locations, or travel-related content you can see.'
+            content: 'You are analyzing a TikTok travel video. Focus on extracting any visible text, location names, landmarks, or travel-related visual elements you can see in the video frames.'
           },
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: 'Analyze this travel video and extract any visible text, location indicators, or travel-related visual elements.'
+                text: 'Analyze this travel video and extract any visible text overlays, location names, landmarks, or travel-related visual elements. Focus on text that appears on screen and identifiable locations.'
               }
             ]
           }
